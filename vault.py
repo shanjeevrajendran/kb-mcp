@@ -140,6 +140,19 @@ class Vault:
         scored.sort(key=lambda x: -x[0])
         return [{**n.card(), "score": round(s, 2)} for s, n in scored[:limit]]
 
+    def embed_docs(self, types: set[str] | None = None) -> dict:
+        """note name -> (mtime, text to embed): name, summary, definition and how-it-works."""
+        self.refresh()
+        out = {}
+        for n in self.notes.values():
+            if types and n.type not in types:
+                continue
+            secs = n.sections()
+            text = " \n".join([n.name, str(n.meta.get("summary") or ""), secs.get("Definition", ""),
+                                secs.get("How it works", "")])[:2000]
+            out[n.name] = ((self.root / n.folder / f"{n.name}.md").stat().st_mtime, text)
+        return out
+
     def related(self, name: str, edge_types: set[str] | None = None) -> dict:
         n = self.resolve(name)
         if n is None:
