@@ -21,7 +21,7 @@ A read-only [MCP](https://modelcontextprotocol.io) server over my personal AI-le
 ## Run
 
 ```bash
-uv run --group dev pytest -q              # 8 in-memory tests on a synthetic vault
+uv run --group dev pytest -q              # 8 in-memory tests on a synthetic vault (also run in CI on every push/PR)
 KB_VAULT=/path/to/vault uv run python server.py   # stdio server
 ```
 
