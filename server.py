@@ -1,8 +1,11 @@
 """kb-mcp: a read-only MCP server over my AI-KB Obsidian vault.
 
-Tools: search_vault, get_note, related, learning_next, vault_stats.
-Runs locally over stdio; never writes to the vault and makes no network calls.
-Config: KB_VAULT (vault path), KB_SCRIPTS (folder holding kb_next.py).
+Tools: search_vault, semantic_search, get_note, related, learning_next, vault_stats.
+Resource: note://{name}. Prompt: quiz(topic).
+Runs locally over stdio and never writes to the vault. The only network call is optional:
+semantic_search asks a LOCAL Ollama for embeddings (non-local endpoints are refused).
+Config: KB_VAULT (vault path), KB_SCRIPTS (folder holding kb_next.py),
+KB_EMBED_URL (default http://localhost:11434), KB_EMBED_MODEL (default embeddinggemma).
 """
 import json
 import os
@@ -13,6 +16,7 @@ from collections import Counter
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
+import embed as emb
 from vault import EDGES, Vault
 
 VAULT_PATH = os.environ.get("KB_VAULT", "~/Library/Mobile Documents/com~apple~CloudDocs/AI-KB")
@@ -39,6 +43,49 @@ def search_vault(query: str, kind: str | None = None, limit: int = 8) -> list[di
     (default searches tools, concepts and projects). Returns note cards ranked by relevance.
     """
     return vault.search(query, _types(kind), max(1, min(limit, 25)))
+
+
+@mcp.tool(annotations=READ_ONLY)
+def semantic_search(query: str, kind: str | None = None, limit: int = 8) -> dict:
+    """Meaning-based search ("how do I keep private data off the cloud?") using local Ollama
+    embeddings, blended with keyword relevance (0.6 semantic + 0.4 keyword). Falls back to keyword
+    search, and says so, when local embeddings are unavailable."""
+    limit = max(1, min(limit, 25))
+    kw = vault.search(query, _types(kind), 50)
+    try:
+        vecs = emb.EmbeddingCache().vectors(vault.embed_docs(_types(kind)))
+        q = emb.embed([query])[0]  # module attribute lookup: swappable
+    except emb.EmbeddingsUnavailable as e:
+        return {"mode": "keyword", "reason": str(e), "results": kw[:limit]}
+    top_kw = max((h["score"] for h in kw), default=1) or 1
+    kw_norm = {h["name"]: h["score"] / top_kw for h in kw}
+    scored = sorted(((0.6 * emb.dot(q, v) + 0.4 * kw_norm.get(n, 0), n) for n, v in vecs.items()), reverse=True)
+    return {"mode": "semantic", "results": [{**vault.notes[n].card(), "score": round(s, 3)} for s, n in scored[:limit]]}
+
+
+@mcp.resource("note://{name}", mime_type="text/markdown")
+def note_resource(name: str) -> str:
+    """A whole note as markdown (summary line + body)."""
+    n = vault.resolve(name)
+    if n is None:
+        raise ValueError(f"no note named {name!r}")
+    return f"# {n.name}\n\n> {n.meta.get('summary') or ''}\n\n{n.body.strip()}\n"
+
+
+@mcp.prompt()
+def quiz(topic: str) -> str:
+    """Active-recall quiz on one note (same rules as the kb-learn skill)."""
+    n = vault.resolve(topic)
+    if n is None:
+        return f"There is no note named {topic!r} in the vault. Ask me which topic I meant."
+    secs = n.sections()
+    body = "\n\n".join(f"## {k}\n{v}" for k, v in secs.items()
+                        if k in ("Definition", "Glossary", "How it works", "Why it matters for my lab", "Gotchas"))
+    return (f"Quiz me on **{n.name}** using only the note below. Ask 3 questions, one at a time, and wait for "
+            "each answer: recall (explain a core idea), understand (why/how), apply (a scenario on my 8GB M1 / "
+            "future Mac Studio with fail-closed privacy). Grade each: correct / partly / missed, with the one-line "
+            "answer and its section. Pass = at least 2 correct and the apply question not missed. Do not change "
+            f"the vault; tell me the result.\n\n{UNTRUSTED}\n\n{body}")
 
 
 @mcp.tool(annotations=READ_ONLY)
