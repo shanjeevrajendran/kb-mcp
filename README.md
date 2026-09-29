@@ -17,6 +17,19 @@ Also:
 - **Resource** `note://{name}` returns the whole note as markdown.
 - **Prompt** `quiz(topic)` runs a 3-question active-recall quiz built from the note's own content.
 
+## kb-write: the separate, write-enabled server (`writer.py`)
+The read-only server above can never change the vault. Learning progress goes through a **second server** that you register and approve separately:
+
+| Tool | What it does |
+|---|---|
+| `record_quiz(topic, grades, takeaway)` | Takes 3 grades (`correct`, `partly` or `missed`). **The server decides pass or fail** (at least 2 correct, and the apply question not missed), then updates `learned`, `learned_on` and `reviews`, and appends to `## Quiz log`. |
+| `mark_learned(topic, learned, reason)` | An explicit override for when you say "mark X learned". A reason is required. |
+
+Guards:
+- It only accepts tool and concept notes, found by name or alias; file paths are never accepted.
+- Only 3 frontmatter fields can ever change. The rest of the file stays byte-identical, which is tested.
+- Every write is atomic, preceded by a vault snapshot (`KB_BACKUP_CMD`), and appended to `_history/learning.jsonl`.
+
 ## Design choices
 - **Read-only by construction.** No tool writes, and every tool is annotated `readOnlyHint: true`. A test fails if write calls appear in the source.
 - **Local only.** It uses the stdio transport. The only network call is optional: embeddings from a **localhost** Ollama. Any non-local embedding endpoint is refused (a test covers this), so private notes never leave the machine.
@@ -27,15 +40,16 @@ Also:
 ## Run
 
 ```bash
-uv run --group dev pytest -q              # 12 in-memory tests on a synthetic vault (also run in CI on every push/PR)
+uv run --group dev pytest -q              # 22 in-memory tests on synthetic vaults (also run in CI on every push/PR)
 ollama pull embeddinggemma                # optional: enables semantic_search
 KB_VAULT=/path/to/vault uv run python server.py   # stdio server
 ```
 
-Register with Claude Code:
+Register with Claude Code (the reader, plus the writer only if you want quiz results saved):
 
 ```bash
 claude mcp add kb -s user -e KB_VAULT="$HOME/Library/Mobile Documents/com~apple~CloudDocs/AI-KB" -- uv run --directory ~/code/kb-mcp python server.py
+claude mcp add kb-write -s user -e KB_VAULT="$HOME/Library/Mobile Documents/com~apple~CloudDocs/AI-KB" -- uv run --directory ~/code/kb-mcp python writer.py
 ```
 
 Configuration:
@@ -44,4 +58,4 @@ Configuration:
 - `KB_EMBED_URL` defaults to `http://localhost:11434` and must be local. `KB_EMBED_MODEL` defaults to `embeddinggemma`.
 
 ## Next
-- Write the quiz result back through a separate, explicitly write-enabled server, so this one stays read-only.
+- Spaced-review reminders pushed to my phone when `learned_on + 30·2^reviews` days have passed.
