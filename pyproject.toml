@@ -1,7 +1,7 @@
 [project]
 name = "kb-mcp"
 version = "0.1.0"
-description = "Read-only MCP server over a personal AI-learning knowledge graph (Obsidian vault)."
+description = "MCP servers over a personal AI-learning knowledge graph (Obsidian vault): read-only kb-mcp + narrow kb-write."
 requires-python = ">=3.10"
 dependencies = ["mcp>=1.29,<2", "pyyaml>=6"]
 
@@ -9,4 +9,4 @@ dependencies = ["mcp>=1.29,<2", "pyyaml>=6"]
 dev = ["pytest>=8", "anyio>=4"]
 
 [tool.pytest.ini_options]
-testpaths = ["test_server.py"]
+testpaths = ["test_server.py", "test_writer.py"]
